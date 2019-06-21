@@ -39,8 +39,7 @@ var (
 
 // PipelineRunSpec defines the desired state of PipelineRun
 type PipelineRunSpec struct {
-	PipelineRef PipelineRef     `json:"pipelineRef"`
-	Trigger     PipelineTrigger `json:"trigger"`
+	PipelineRef PipelineRef `json:"pipelineRef"`
 	// Resources is a list of bindings specifying which actual instances of
 	// PipelineResources to use for the resources the Pipeline has declared
 	// it needs.
@@ -50,12 +49,14 @@ type PipelineRunSpec struct {
 	// +optional
 	ServiceAccount string `json:"serviceAccount"`
 	// +optional
+	ServiceAccounts []PipelineRunSpecServiceAccount `json:"serviceAccounts,omitempty"`
+	// +optional
 	Results *Results `json:"results,omitempty"`
 	// Used for cancelling a pipelinerun (and maybe more later on)
 	// +optional
 	Status PipelineRunSpecStatus `json:"status,omitempty"`
 	// Time after which the Pipeline times out. Defaults to never.
-	// Refer Go's ParseDuration documentation for expected format: https://golang.org/pkg/time/#ParseDuration
+	// Refer to Go's ParseDuration documentation for expected format: https://golang.org/pkg/time/#ParseDuration
 	// +optional
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
 	// NodeSelector is a selector which must be true for the pod to fit on a node.
@@ -97,22 +98,6 @@ type PipelineRef struct {
 	// API version of the referent
 	// +optional
 	APIVersion string `json:"apiVersion,omitempty"`
-}
-
-// PipelineTriggerType indicates the mechanism by which this PipelineRun was created.
-type PipelineTriggerType string
-
-const (
-	// PipelineTriggerTypeManual indicates that this PipelineRun was invoked manually by a user.
-	PipelineTriggerTypeManual PipelineTriggerType = "manual"
-)
-
-// PipelineTrigger describes what triggered this Pipeline to run. It could be triggered manually,
-// or it could have been some kind of external event (not yet designed).
-type PipelineTrigger struct {
-	Type PipelineTriggerType `json:"type,omitempty"`
-	// +optional
-	Name string `json:"name,omitempty"`
 }
 
 // PipelineRunStatus defines the observed state of PipelineRun
@@ -164,6 +149,12 @@ func (pr *PipelineRunStatus) InitializeConditions() {
 	pipelineRunCondSet.Manage(pr).InitializeConditions()
 }
 
+// PipelineRunSpecServiceAccount can be used to configure specific ServiceAccount for a concrete Task
+type PipelineRunSpecServiceAccount struct {
+	TaskName       string `json:"taskName,omitempty"`
+	ServiceAccount string `json:"serviceAccount,omitempty"`
+}
+
 // SetCondition sets the condition, unsetting previous conditions with the same
 // type as necessary.
 func (pr *PipelineRunStatus) SetCondition(newCond *apis.Condition) {
@@ -175,7 +166,12 @@ func (pr *PipelineRunStatus) SetCondition(newCond *apis.Condition) {
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-// PipelineRun is the Schema for the pipelineruns API
+// PipelineRun represents a single execution of a Pipeline. PipelineRuns are how
+// the graph of Tasks declared in a Pipeline are executed; they specify inputs
+// to Pipelines such as parameter values and capture operational aspects of the
+// Tasks execution such as service account and tolerations. Creating a
+// PipelineRun creates TaskRuns for Tasks in the referenced Pipeline.
+//
 // +k8s:openapi-gen=true
 type PipelineRun struct {
 	metav1.TypeMeta `json:",inline"`

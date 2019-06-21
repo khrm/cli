@@ -32,7 +32,6 @@ var _ apis.Defaultable = (*TaskRun)(nil)
 
 // TaskRunSpec defines the desired state of TaskRun
 type TaskRunSpec struct {
-	Trigger TaskTrigger `json:"trigger,omitempty"`
 	// +optional
 	Inputs TaskRunInputs `json:"inputs,omitempty"`
 	// +optional
@@ -84,34 +83,27 @@ type TaskRunInputs struct {
 	Params []Param `json:"params,omitempty"`
 }
 
+// TaskResourceBinding points to the PipelineResource that
+// will be used for the Task input or output called Name. The optional Path field
+// corresponds to a path on disk at which the Resource can be found (used when providing
+// the resource via mounted volume, overriding the default logic to fetch the Resource).
+type TaskResourceBinding struct {
+	Name string `json:"name"`
+	// no more than one of the ResourceRef and ResourceSpec may be specified.
+	// +optional
+	ResourceRef PipelineResourceRef `json:"resourceRef,omitempty"`
+	// +optional
+	ResourceSpec *PipelineResourceSpec `json:"resourceSpec,omitempty"`
+	// +optional
+	Paths []string `json:"paths,omitempty"`
+}
+
 // TaskRunOutputs holds the output values that this task was invoked with.
 type TaskRunOutputs struct {
 	// +optional
 	Resources []TaskResourceBinding `json:"resources,omitempty"`
 	// +optional
 	Params []Param `json:"params,omitempty"`
-}
-
-// TaskTriggerType indicates the mechanism by which this TaskRun was created.
-type TaskTriggerType string
-
-const (
-	// TaskTriggerTypeManual indicates that this TaskRun was invoked manually by a user.
-	TaskTriggerTypeManual TaskTriggerType = "manual"
-
-	// TaskTriggerTypePipelineRun indicates that this TaskRun was created by a controller
-	// attempting to realize a PipelineRun. In this case the `name` will refer to the name
-	// of the PipelineRun.
-	TaskTriggerTypePipelineRun TaskTriggerType = "pipelineRun"
-)
-
-// TaskTrigger describes what triggered this Task to run. It could be triggered manually,
-// or it may have been part of a PipelineRun in which case this ref would refer
-// to the corresponding PipelineRun.
-type TaskTrigger struct {
-	Type TaskTriggerType `json:"type"`
-	// +optional
-	Name string `json:"name,omitempty,omitempty"`
 }
 
 var taskRunCondSet = apis.NewBatchConditionSet()
@@ -138,6 +130,14 @@ type TaskRunStatus struct {
 	// Steps describes the state of each build step container.
 	// +optional
 	Steps []StepState `json:"steps,omitempty"`
+	// RetriesStatus contains the history of TaskRunStatus in case of a retry in order to keep record of failures.
+	// All TaskRunStatus stored in RetriesStatus will have no date within the RetriesStatus as is redundant.
+	// +optional
+	RetriesStatus []TaskRunStatus `json:"retriesStatus,omitempty"`
+	// Results from Resources built during the taskRun. currently includes
+	// the digest of build container images
+	// optional
+	ResourcesResult []PipelineResourceResult `json:"resourcesResult,omitempty"`
 }
 
 // GetCondition returns the Condition matching the given type.
@@ -171,7 +171,10 @@ type StepState struct {
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-// TaskRun is the Schema for the taskruns API
+// TaskRun represents a single execution of a Task. TaskRuns are how the steps
+// specified in a Task are executed; they specify the parameters and resources
+// used to run the steps in a Task.
+//
 // +k8s:openapi-gen=true
 type TaskRun struct {
 	metav1.TypeMeta `json:",inline"`
@@ -236,6 +239,11 @@ func (tr *TaskRun) IsDone() bool {
 // HasStarted function check whether taskrun has valid start time set in its status
 func (tr *TaskRun) HasStarted() bool {
 	return tr.Status.StartTime != nil && !tr.Status.StartTime.IsZero()
+}
+
+// IsSuccessful returns true if the TaskRun's status indicates that it is done.
+func (tr *TaskRun) IsSuccessful() bool {
+	return tr.Status.GetCondition(apis.ConditionSucceeded).IsTrue()
 }
 
 // IsCancelled returns true if the TaskRun's spec status is set to Cancelled state

@@ -42,25 +42,15 @@ func ApplyParameters(spec *v1alpha1.TaskSpec, tr *v1alpha1.TaskRun, defaults ...
 }
 
 // ApplyResources applies the templating from values in resources which are referenced in spec as subitems
-// of the replacementStr. It retrieves the referenced resources via the getter.
-func ApplyResources(spec *v1alpha1.TaskSpec, resources []v1alpha1.TaskResourceBinding, getter GetResource, replacementStr string) (*v1alpha1.TaskSpec, error) {
+// of the replacementStr.
+func ApplyResources(spec *v1alpha1.TaskSpec, resolvedResources map[string]v1alpha1.PipelineResourceInterface, replacementStr string) *v1alpha1.TaskSpec {
 	replacements := map[string]string{}
-
-	for _, r := range resources {
-		pr, err := getResource(&r, getter)
-		if err != nil {
-			return nil, err
-		}
-
-		resource, err := v1alpha1.ResourceFromType(pr)
-		if err != nil {
-			return nil, err
-		}
-		for k, v := range resource.Replacements() {
-			replacements[fmt.Sprintf("%s.resources.%s.%s", replacementStr, r.Name, k)] = v
+	for name, r := range resolvedResources {
+		for k, v := range r.Replacements() {
+			replacements[fmt.Sprintf("%s.resources.%s.%s", replacementStr, name, k)] = v
 		}
 	}
-	return ApplyReplacements(spec, replacements), nil
+	return ApplyReplacements(spec, replacements)
 }
 
 // ApplyReplacements replaces placeholders for declared parameters with the specified replacements.
@@ -77,6 +67,25 @@ func ApplyReplacements(spec *v1alpha1.TaskSpec, replacements map[string]string) 
 		}
 		for ie, e := range steps[i].Env {
 			steps[i].Env[ie].Value = templating.ApplyReplacements(e.Value, replacements)
+			if steps[i].Env[ie].ValueFrom != nil {
+				if e.ValueFrom.SecretKeyRef != nil {
+					steps[i].Env[ie].ValueFrom.SecretKeyRef.LocalObjectReference.Name = templating.ApplyReplacements(e.ValueFrom.SecretKeyRef.LocalObjectReference.Name, replacements)
+					steps[i].Env[ie].ValueFrom.SecretKeyRef.Key = templating.ApplyReplacements(e.ValueFrom.SecretKeyRef.Key, replacements)
+				}
+				if e.ValueFrom.ConfigMapKeyRef != nil {
+					steps[i].Env[ie].ValueFrom.ConfigMapKeyRef.LocalObjectReference.Name = templating.ApplyReplacements(e.ValueFrom.ConfigMapKeyRef.LocalObjectReference.Name, replacements)
+					steps[i].Env[ie].ValueFrom.ConfigMapKeyRef.Key = templating.ApplyReplacements(e.ValueFrom.ConfigMapKeyRef.Key, replacements)
+				}
+			}
+		}
+		for ie, e := range steps[i].EnvFrom {
+			steps[i].EnvFrom[ie].Prefix = templating.ApplyReplacements(e.Prefix, replacements)
+			if e.ConfigMapRef != nil {
+				steps[i].EnvFrom[ie].ConfigMapRef.LocalObjectReference.Name = templating.ApplyReplacements(e.ConfigMapRef.LocalObjectReference.Name, replacements)
+			}
+			if e.SecretRef != nil {
+				steps[i].EnvFrom[ie].SecretRef.LocalObjectReference.Name = templating.ApplyReplacements(e.SecretRef.LocalObjectReference.Name, replacements)
+			}
 		}
 		steps[i].WorkingDir = templating.ApplyReplacements(steps[i].WorkingDir, replacements)
 		for ic, c := range steps[i].Command {

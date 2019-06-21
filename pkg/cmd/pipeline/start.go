@@ -34,12 +34,14 @@ var (
 const (
 	invalidResource = "invalid resource parameter: "
 	invalidParam    = "invalid param parameter: "
+	invalidSvc      = "invalid service account parameter: "
 )
 
 type startOptions struct {
-	Params             []string
-	Resources          []string
-	ServiceAccountName string
+	Params              []string
+	Resources           []string
+	ServiceAccountName  string
+	ServiceAccountTasks []string
 }
 
 // NameArg validates that the first argument is a valid pipeline name
@@ -71,6 +73,7 @@ func startCommand(p cli.Params) *cobra.Command {
 		res    []string
 		params []string
 		svc    string
+		svcs   []string
 	)
 
 	c := &cobra.Command{
@@ -97,7 +100,7 @@ func startCommand(p cli.Params) *cobra.Command {
 	c.Flags().StringSliceVarP(&res, "resource", "r", []string{}, "pass the resource name and ref")
 	c.Flags().StringSliceVarP(&params, "param", "p", []string{}, "pass the param")
 	c.Flags().StringVarP(&svc, "serviceaccount", "s", svc, "pass the serviceaccount name")
-
+	c.Flags().StringSliceVar(&svcs, "serviceaccounts", svcs, "pass the serviceaccount name for taskreferences")
 	return c
 }
 
@@ -118,16 +121,22 @@ func startPipeline(out io.Writer, opt startOptions, p cli.Params, pName string) 
 		return err
 	}
 
+	svcs, err := parseSVCTasks(opt.ServiceAccountTasks)
+	if err != nil {
+		return err
+	}
+
 	pr := &v1alpha1.PipelineRun{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace:    p.Namespace(),
 			GenerateName: pName + "-run-",
 		},
 		Spec: v1alpha1.PipelineRunSpec{
-			PipelineRef:    v1alpha1.PipelineRef{Name: pName},
-			ServiceAccount: opt.ServiceAccountName,
-			Resources:      res,
-			Params:         params,
+			PipelineRef:     v1alpha1.PipelineRef{Name: pName},
+			ServiceAccount:  opt.ServiceAccountName,
+			Resources:       res,
+			Params:          params,
+			ServiceAccounts: svcs,
 		},
 	}
 
@@ -165,7 +174,7 @@ func parseParam(p []string) ([]v1alpha1.Param, error) {
 		r := strings.Split(v, "=")
 		if len(r) != 2 {
 			errMsg := invalidParam + v +
-				"\n Please pass resource as -r ParamName=ParamValue"
+				"\n Please pass param as -r ParamName=ParamValue"
 			return nil, errors.New(errMsg)
 		}
 		params = append(params, v1alpha1.Param{
@@ -174,4 +183,21 @@ func parseParam(p []string) ([]v1alpha1.Param, error) {
 		})
 	}
 	return params, nil
+}
+
+func parseSVCTasks(p []string) ([]v1alpha1.PipelineRunSpecServiceAccount, error) {
+	var svcs []v1alpha1.PipelineRunSpecServiceAccount
+	for _, v := range p {
+		r := strings.Split(v, "=")
+		if len(r) != 2 {
+			errMsg := invalidParam + v +
+				"\n Please pass service account as -r SCV=Task"
+			return nil, errors.New(errMsg)
+		}
+		svcs = append(svcs, v1alpha1.PipelineRunSpecServiceAccount{
+			ServiceAccount: r[0],
+			TaskName:       r[1],
+		})
+	}
+	return svcs, nil
 }
